@@ -13,9 +13,6 @@ integer ik,lp
 real(8), allocatable :: evalfv(:,:)
 complex(8), allocatable :: evecfv(:,:,:),evecsv(:,:)
 ! begin parallel loop over k-points
-!$OMP PARALLEL DEFAULT(SHARED) &
-!$OMP PRIVATE(evalfv,evecfv,evecsv)
-!$OMP DO
 do ik=1,nkpt
 ! distribute among MPI processes
   if (mod(ik-1,np_mpi).ne.lp_mpi) cycle
@@ -31,8 +28,6 @@ do ik=1,nkpt
   call putevecsv(ik,evecsv)
   deallocate(evalfv,evecfv,evecsv)
 end do
-!$OMP END DO
-!$OMP END PARALLEL
 ! synchronise MPI processes
 call mpi_barrier(mpi_comm_kpt,ierror)
 ! broadcast eigenvalue array to every process

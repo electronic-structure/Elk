@@ -267,7 +267,7 @@ dtimes=0.01d0
 npulse=0
 ntwrite=10
 ffdamp=.false.
-
+use_sirius=.false.
 !--------------------------!
 !     read from elk.in     !
 !--------------------------!
@@ -1519,6 +1519,8 @@ case('ntwrite')
   read(50,*,err=20) ntwrite
 case('ffdamp')
   read(50,*,err=20) ffdamp
+case('use_sirius')
+  read(50,*,err=20) use_sirius
 case('')
   goto 10
 case default
@@ -1605,7 +1607,7 @@ end if
 ! find primitive cell if required
 if (primcell) call findprimcell
 ! read in atomic species data
-call readspecies
+if (.not.use_sirius) call readspecies
 return
 end subroutine
 !EOC

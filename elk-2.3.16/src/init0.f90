@@ -196,6 +196,13 @@ if (ndmag.eq.3) then
 else
   ncmag=.false.
 end if
+if (use_sirius) then
+#ifdef SIRIUS
+  call sirius_global_initialize(lmaxapw, lmaxvr, lmaxvr, ndmag)
+#else
+  stop "Not compiled with SIRIUS support"
+#endif
+endif
 ! check for meta-GGA with non-collinearity
 if ((xcgrad.eq.3).and.ncmag) then
   write(*,*)
@@ -267,13 +274,15 @@ do is=1,nspecies
     call r3mv(avec,atposl(:,ia,is),atposc(:,ia,is))
   end do
 end do
-! check muffin-tins are not too close together
-call checkmt
-! compute the total muffin-tin volume (M. Meinert)
 omegamt=0.d0
-do is=1,nspecies
-  omegamt=omegamt+dble(natoms(is))*(fourpi/3.d0)*rmt(is)**3
-end do
+if (.not.use_sirius) then
+! check muffin-tins are not too close together
+  call checkmt
+! compute the total muffin-tin volume (M. Meinert)
+  do is=1,nspecies
+    omegamt=omegamt+dble(natoms(is))*(fourpi/3.d0)*rmt(is)**3
+  end do
+endif
 ! write to VARIABLES.OUT
 call writevars('avec',nv=9,rva=avec)
 call writevars('bvec',nv=9,rva=bvec)
@@ -304,178 +313,212 @@ end if
 !---------------------------------!
 call symmetry
 
-!-----------------------!
-!     radial meshes     !
-!-----------------------!
-nrmtmax=1
-nrcmtmax=1
-do is=1,nspecies
-! make the muffin-tin mesh commensurate with lradstp
-  nrmt(is)=nrmt(is)-mod(nrmt(is)-1,lradstp)
-  nrmtmax=max(nrmtmax,nrmt(is))
-! number of coarse radial mesh points
-  nrcmt(is)=(nrmt(is)-1)/lradstp+1
-  nrcmtmax=max(nrcmtmax,nrcmt(is))
-end do
-! set up atomic and muffin-tin radial meshes
-call genrmesh
-
-!--------------------------------------!
-!     charges and number of states     !
-!--------------------------------------!
-chgzn=0.d0
-chgcrtot=0.d0
-chgval=0.d0
-spnstmax=0
-nstcr=0
-do is=1,nspecies
-! nuclear charge
-  chgzn=chgzn+spzn(is)*natoms(is)
-! find the maximum number of atomic states
-  spnstmax=max(spnstmax,spnst(is))
-! compute the electronic charge for each species, as well as the total core and
-! valence charge
-  spze(is)=0.d0
-  chgcr(is)=0.d0
-  do ist=1,spnst(is)
-    spze(is)=spze(is)+spocc(ist,is)
-    if (spcore(ist,is)) then
-      chgcr(is)=chgcr(is)+spocc(ist,is)
-      nstcr=nstcr+2*spk(ist,is)*natoms(is)
-    else
-      chgval=chgval+spocc(ist,is)*natoms(is)
-    end if
+if (.not.use_sirius) then
+  !-----------------------!
+  !     radial meshes     !
+  !-----------------------!
+  nrmtmax=1
+  nrcmtmax=1
+  do is=1,nspecies
+  ! make the muffin-tin mesh commensurate with lradstp
+    nrmt(is)=nrmt(is)-mod(nrmt(is)-1,lradstp)
+    nrmtmax=max(nrmtmax,nrmt(is))
+  ! number of coarse radial mesh points
+    nrcmt(is)=(nrmt(is)-1)/lradstp+1
+    nrcmtmax=max(nrcmtmax,nrcmt(is))
   end do
-  chgcrtot=chgcrtot+chgcr(is)*natoms(is)
-end do
-! add excess charge
-chgval=chgval+chgexs
-! total charge
-chgtot=chgcrtot+chgval
-if (chgtot.lt.1.d-8) then
-  write(*,*)
-  write(*,'("Error(init0): zero total charge")')
-  write(*,*)
-  stop
-end if
-! effective Wigner radius
-rwigner=(3.d0/(fourpi*(chgtot/omega)))**(1.d0/3.d0)
-! write to VARIABLES.OUT
-call writevars('spze',nv=nspecies,rva=spze)
-call writevars('chgcr',nv=nspecies,rva=chgcr)
-call writevars('chgexs',rv=chgexs)
-call writevars('chgval',rv=chgtot)
-
-!-------------------------!
-!     G-vector arrays     !
-!-------------------------!
-if (nspecies.eq.0) isgkmax=-2
-! determine gkmax from rgkmax and the muffin-tin radius
-if (isgkmax.eq.-2) then
-  gkmax=rgkmax/2.d0
-else
-  if ((isgkmax.ge.1).and.(isgkmax.le.nspecies)) then
-! use user-specified muffin-tin radius
-    gkmax=rgkmax/rmt(isgkmax)
-  else if (isgkmax.eq.-1) then
-! use average muffin-tin radius
-    rsum=0.d0
-    do is=1,nspecies
-      rsum=rsum+dble(natoms(is))*rmt(is)
-    end do
-    rsum=rsum/dble(natmtot)
-    gkmax=rgkmax/rsum
-  else
-! use minimum muffin-tin radius (isgkmax=-3)
-    gkmax=rgkmax/minval(rmt(1:nspecies))
-  end if
-end if
-! ensure |G| cut-off is at least twice |G+k| cut-off
-gmaxvr=max(gmaxvr,2.d0*gkmax+epslat)
-! find the G-vector grid sizes
-call gridsize(avec,gmaxvr,ngridg,ngtot,intgv)
-! allocate global G-vector arrays
-if (allocated(ivg)) deallocate(ivg)
-allocate(ivg(3,ngtot))
-if (allocated(ivgig)) deallocate(ivgig)
-allocate(ivgig(intgv(1,1):intgv(2,1),intgv(1,2):intgv(2,2), &
- intgv(1,3):intgv(2,3)))
-if (allocated(igfft)) deallocate(igfft)
-allocate(igfft(ngtot))
-if (allocated(vgc)) deallocate(vgc)
-allocate(vgc(3,ngtot))
-if (allocated(gc)) deallocate(gc)
-allocate(gc(ngtot))
-! generate the G-vectors
-call gengvec(ngridg,ngtot,intgv,bvec,gmaxvr,ngvec,ivg,ivgig,igfft,vgc,gc)
-! write number of G-vectors to test file
-call writetest(900,'number of G-vectors',iv=ngvec)
-! Poisson solver pseudocharge density constant
-if (nspecies.gt.0) then
-  t1=0.25d0*gmaxvr*maxval(rmt(1:nspecies))
-else
-  t1=0.25d0*gmaxvr*2.d0
-end if
-npsd=max(nint(t1),1)
-lnpsd=lmaxvr+npsd+1
-! compute the spherical Bessel functions j_l(|G|R_mt)
-if (allocated(jlgr)) deallocate(jlgr)
-allocate(jlgr(0:lnpsd,ngvec,nspecies))
-call genjlgpr(lnpsd,gc,jlgr)
-! generate the spherical harmonics of the G-vectors
-call genylmg
-! allocate structure factor array for G-vectors
-if (allocated(sfacg)) deallocate(sfacg)
-allocate(sfacg(ngvec,natmtot))
-! generate structure factors for G-vectors
-call gensfacgp(ngvec,vgc,ngvec,sfacg)
-! generate the smooth step function form factors
-if (allocated(ffacg)) deallocate(ffacg)
-allocate(ffacg(ngtot,nspecies))
-do is=1,nspecies
-  call genffacgp(is,gc,ffacg(:,is))
-end do
-! generate the characteristic function
-call gencfun
-! write to VARIABLES.OUT
-call writevars('gmaxvr',rv=gmaxvr)
-call writevars('ngridg',nv=3,iva=ngridg)
-call writevars('intgv',nv=6,iva=intgv)
-call writevars('ngvec',iv=ngvec)
-call writevars('ivg',nv=3*ngtot,iva=ivg)
-call writevars('igfft',nv=ngtot,iva=igfft)
-
-!-------------------------!
-!     atoms and cores     !
-!-------------------------!
-! solve the Kohn-Sham-Dirac equations for all atoms
-call allatoms
-! allocate core state occupancy and eigenvalue arrays and set to default
-if (allocated(occcr)) deallocate(occcr)
-allocate(occcr(spnstmax,natmtot))
-if (allocated(evalcr)) deallocate(evalcr)
-allocate(evalcr(spnstmax,natmtot))
-do is=1,nspecies
-  do ia=1,natoms(is)
-    ias=idxas(ia,is)
+  ! set up atomic and muffin-tin radial meshes
+  call genrmesh
+  
+  !--------------------------------------!
+  !     charges and number of states     !
+  !--------------------------------------!
+  chgzn=0.d0
+  chgcrtot=0.d0
+  chgval=0.d0
+  spnstmax=0
+  nstcr=0
+  do is=1,nspecies
+  ! nuclear charge
+    chgzn=chgzn+spzn(is)*natoms(is)
+  ! find the maximum number of atomic states
+    spnstmax=max(spnstmax,spnst(is))
+  ! compute the electronic charge for each species, as well as the total core and
+  ! valence charge
+    spze(is)=0.d0
+    chgcr(is)=0.d0
     do ist=1,spnst(is)
-      occcr(ist,ias)=spocc(ist,is)
-      evalcr(ist,ias)=speval(ist,is)
+      spze(is)=spze(is)+spocc(ist,is)
+      if (spcore(ist,is)) then
+        chgcr(is)=chgcr(is)+spocc(ist,is)
+        nstcr=nstcr+2*spk(ist,is)*natoms(is)
+      else
+        chgval=chgval+spocc(ist,is)*natoms(is)
+      end if
+    end do
+    chgcrtot=chgcrtot+chgcr(is)*natoms(is)
+  end do
+  ! add excess charge
+  chgval=chgval+chgexs
+  ! total charge
+  chgtot=chgcrtot+chgval
+  if (chgtot.lt.1.d-8) then
+    write(*,*)
+    write(*,'("Error(init0): zero total charge")')
+    write(*,*)
+    stop
+  end if
+  ! effective Wigner radius
+  rwigner=(3.d0/(fourpi*(chgtot/omega)))**(1.d0/3.d0)
+  ! write to VARIABLES.OUT
+  call writevars('spze',nv=nspecies,rva=spze)
+  call writevars('chgcr',nv=nspecies,rva=chgcr)
+  call writevars('chgexs',rv=chgexs)
+  call writevars('chgval',rv=chgtot)
+  
+  !-------------------------!
+  !     G-vector arrays     !
+  !-------------------------!
+  if (nspecies.eq.0) isgkmax=-2
+  ! determine gkmax from rgkmax and the muffin-tin radius
+  if (isgkmax.eq.-2) then
+    gkmax=rgkmax/2.d0
+  else
+    if ((isgkmax.ge.1).and.(isgkmax.le.nspecies)) then
+  ! use user-specified muffin-tin radius
+      gkmax=rgkmax/rmt(isgkmax)
+    else if (isgkmax.eq.-1) then
+  ! use average muffin-tin radius
+      rsum=0.d0
+      do is=1,nspecies
+        rsum=rsum+dble(natoms(is))*rmt(is)
+      end do
+      rsum=rsum/dble(natmtot)
+      gkmax=rgkmax/rsum
+    else
+  ! use minimum muffin-tin radius (isgkmax=-3)
+      gkmax=rgkmax/minval(rmt(1:nspecies))
+    end if
+  end if
+  ! ensure |G| cut-off is at least twice |G+k| cut-off
+  gmaxvr=max(gmaxvr,2.d0*gkmax+epslat)
+  ! find the G-vector grid sizes
+  call gridsize(avec,gmaxvr,ngridg,ngtot,intgv)
+  ! allocate global G-vector arrays
+  if (allocated(ivg)) deallocate(ivg)
+  allocate(ivg(3,ngtot))
+  if (allocated(ivgig)) deallocate(ivgig)
+  allocate(ivgig(intgv(1,1):intgv(2,1),intgv(1,2):intgv(2,2), &
+   intgv(1,3):intgv(2,3)))
+  if (allocated(igfft)) deallocate(igfft)
+  allocate(igfft(ngtot))
+  if (allocated(vgc)) deallocate(vgc)
+  allocate(vgc(3,ngtot))
+  if (allocated(gc)) deallocate(gc)
+  allocate(gc(ngtot))
+  ! generate the G-vectors
+  call gengvec(ngridg,ngtot,intgv,bvec,gmaxvr,ngvec,ivg,ivgig,igfft,vgc,gc)
+  ! write number of G-vectors to test file
+  call writetest(900,'number of G-vectors',iv=ngvec)
+  ! Poisson solver pseudocharge density constant
+  if (nspecies.gt.0) then
+    t1=0.25d0*gmaxvr*maxval(rmt(1:nspecies))
+  else
+    t1=0.25d0*gmaxvr*2.d0
+  end if
+  npsd=max(nint(t1),1)
+  lnpsd=lmaxvr+npsd+1
+  ! compute the spherical Bessel functions j_l(|G|R_mt)
+  if (allocated(jlgr)) deallocate(jlgr)
+  allocate(jlgr(0:lnpsd,ngvec,nspecies))
+  call genjlgpr(lnpsd,gc,jlgr)
+  ! generate the spherical harmonics of the G-vectors
+  call genylmg
+  ! allocate structure factor array for G-vectors
+  if (allocated(sfacg)) deallocate(sfacg)
+  allocate(sfacg(ngvec,natmtot))
+  ! generate structure factors for G-vectors
+  call gensfacgp(ngvec,vgc,ngvec,sfacg)
+  ! generate the smooth step function form factors
+  if (allocated(ffacg)) deallocate(ffacg)
+  allocate(ffacg(ngtot,nspecies))
+  do is=1,nspecies
+    call genffacgp(is,gc,ffacg(:,is))
+  end do
+  ! generate the characteristic function
+  call gencfun
+  ! write to VARIABLES.OUT
+  call writevars('gmaxvr',rv=gmaxvr)
+  call writevars('ngridg',nv=3,iva=ngridg)
+  call writevars('intgv',nv=6,iva=intgv)
+  call writevars('ngvec',iv=ngvec)
+  call writevars('ivg',nv=3*ngtot,iva=ivg)
+  call writevars('igfft',nv=ngtot,iva=igfft)
+  
+  !-------------------------!
+  !     atoms and cores     !
+  !-------------------------!
+  ! solve the Kohn-Sham-Dirac equations for all atoms
+  call allatoms
+  ! allocate core state occupancy and eigenvalue arrays and set to default
+  if (allocated(occcr)) deallocate(occcr)
+  allocate(occcr(spnstmax,natmtot))
+  if (allocated(evalcr)) deallocate(evalcr)
+  allocate(evalcr(spnstmax,natmtot))
+  do is=1,nspecies
+    do ia=1,natoms(is)
+      ias=idxas(ia,is)
+      do ist=1,spnst(is)
+        occcr(ist,ias)=spocc(ist,is)
+        evalcr(ist,ias)=speval(ist,is)
+      end do
     end do
   end do
-end do
-! allocate core state radial wavefunction array
-if (allocated(rwfcr)) deallocate(rwfcr)
-allocate(rwfcr(spnrmax,2,spnstmax,natmtot))
-! number of core spin channels
-if (spincore) then
-  nspncr=2
+  ! allocate core state radial wavefunction array
+  if (allocated(rwfcr)) deallocate(rwfcr)
+  allocate(rwfcr(spnrmax,2,spnstmax,natmtot))
+  ! number of core spin channels
+  if (spincore) then
+    nspncr=2
+  else
+    nspncr=1
+  end if
+  ! allocate core state charge density array
+  if (allocated(rhocr)) deallocate(rhocr)
+  allocate(rhocr(spnrmax,natmtot,nspncr))
 else
-  nspncr=1
-end if
-! allocate core state charge density array
-if (allocated(rhocr)) deallocate(rhocr)
-allocate(rhocr(spnrmax,natmtot,nspncr))
+#ifdef SIRIUS
+  call sirius_get_num_grid_points(ngtot)
+  call sirius_get_max_num_mt_points(nrmtmax)
+  call sirius_get_num_bands(nstsv)
+  call sirius_get_fft_grid_size(ngridg)
+  do i=1,3
+    call sirius_get_fft_grid_limits(i, intgv(1, i), intgv(2, i))
+  enddo
+  call sirius_get_num_gvec(ngvec)
+  
+  ! get muffin-tin grids
+  if (allocated(spr)) deallocate(spr)
+  allocate(spr(nrmtmax,nspecies))
+  do is=1,nspecies
+    call sirius_get_num_mt_points(trim(spfname(is)), nrmt(is))
+    call sirius_get_mt_points(trim(spfname(is)), spr(1,is))
+  enddo
+  
+  ! get FFT related arrays
+  if (allocated(igfft)) deallocate(igfft)
+  allocate(igfft(ngtot))
+  call sirius_get_fft_index(igfft)
+  if (allocated(ivg)) deallocate(ivg)
+  allocate(ivg(3,ngtot))
+  call sirius_get_gvec(ivg)
+  if (allocated(ivgig)) deallocate(ivgig)
+  allocate(ivgig(intgv(1,1):intgv(2,1),intgv(1,2):intgv(2,2),intgv(1,3):intgv(2,3)))
+  call sirius_get_index_by_gvec(ivgig)
+#else
+  stop "Not compiled with SIRIUS support"
+#endif
+endif
 
 !---------------------------------------!
 !     charge density and potentials     !
@@ -543,6 +586,17 @@ allocate(chgmt(natmtot))
 if (allocated(mommt)) deallocate(mommt)
 allocate(mommt(3,natmtot))
 
+if (use_sirius) then
+#ifdef SIRIUS
+  call sirius_density_initialize(rhomt, rhoir, magmt, magir)
+  call sirius_potential_initialize(vsmt, vsir, bxcmt, bxcir)
+  call sirius_get_num_electrons(chgtot)
+  call sirius_get_num_valence_electrons(chgval)
+  call sirius_get_num_core_electrons(chgcr)
+#else
+  stop "Not compiled with SIRIUS support."
+#endif
+endif
 !-------------------------!
 !     force variables     !
 !-------------------------!
@@ -615,10 +669,12 @@ end if
 !-----------------------!
 !     miscellaneous     !
 !-----------------------!
-! determine nuclear radii and volumes
-call nuclei
-! determine the nuclear-nuclear energy
-call energynn
+if (.not.use_sirius) then
+  ! determine nuclear radii and volumes
+  call nuclei
+  ! determine the nuclear-nuclear energy
+  call energynn
+end if
 ! get smearing function description
 call getsdata(stype,sdescr)
 ! get mixing type description

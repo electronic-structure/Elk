@@ -77,7 +77,15 @@ do itask=1,ntasks
   case(-1)
     write(*,'("Elk version ",I1.1,".",I1.1,".",I2.2)') version
   case(0,1)
-    call gndstate
+    if (.not.use_sirius) then
+      call gndstate
+    else
+#ifdef SIRIUS
+      call sirius_ground_state
+#else
+      stop "Not compiled with SIRIUS support"
+#endif
+    endif
   case(2,3)
     call geomopt
   case(5)
