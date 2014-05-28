@@ -5,6 +5,9 @@
 tasks
   0
 
+use_sirius
+ .true.
+ 
 ! You can add notes to the INFO.OUT file using the "notes" block
 notes
  Simple calculation of the ground state of aluminium. Must check convergence
@@ -18,10 +21,6 @@ avec
 
 scale
   3.8267
-
-! this is the relative path to the species files
-sppath
-  '../../species/'
 
 atoms
   1                                   : nspecies

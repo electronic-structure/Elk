@@ -1112,5 +1112,8 @@ integer notelns
 ! notes to include in INFO.OUT
 character(80) notes(maxnlns)
 
+logical use_sirius
+integer kset_id
+
 end module
 

@@ -71,7 +71,8 @@ SRC_routines = \
  hmldbsek.f90 dielectric_bse.f90 genidxbse.f90 writeevbse.f90 hartfock.f90 \
  hflocal.f90 genkmatc.f90 zrhogp.f90 genwfpw.f90 writewfpw.f90 getwfpw.f90 \
  genbmatk.f90 genexpmat.f90 writeexpmat.f90 rvfcross.f90 rfarray.f90 \
- rotdmat.f90 hrmdmat.f90 genfspecies.f90 writespecies.f90 massnucl.f90
+ rotdmat.f90 hrmdmat.f90 genfspecies.f90 writespecies.f90 massnucl.f90 \
+ sirius_ground_state.f90
 
 SRC_phonon = \
  phononsc.f90 dyntask.f90 genscph.f90 phdisp.f90 readdyn.f90 dynqtor.f90 \
@@ -131,8 +132,7 @@ EXE = elk
 # Targets
 #-------------------------------------------------------------------------------
 elk:	$(OBJ)
-	$(F90) $(F90_OPTS) -o $(EXE) $(OBJ) $(LIB_LPK) $(LIB_FFT) $(LIB_libxc) \
-         $(LIB_SYS)
+	$(F90) $(F90_OPTS) -o $(EXE) $(OBJ) $(LIB_LPK) $(LIB_FFT) $(LIB_libxc) $(LIB_SYS)
 
 blas:
 	cd BLAS; $(MAKE); cp blas.a ..
@@ -143,7 +143,7 @@ lapack:
 fft:
 	cd fftlib; $(MAKE); cp fftlib.a ..
 
-all:	blas lapack fft elk
+all:	fft elk
 
 clean:
 	rm -f *.o *.mod *~ ifc* *.gcno gmon.out *.aux *.dvi *.log \

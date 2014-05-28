@@ -162,65 +162,82 @@ end if
 ! write the k-points to test file
 call writetest(910,'k-points (Cartesian)',nv=3*nkpt,tol=1.d-8,rva=vkc)
 
-!---------------------!
-!     G+k-vectors     !
-!---------------------!
-if ((xctype(1).lt.0).or.(task.eq.5).or.(task.eq.10).or.(task.eq.205).or. &
- (task.eq.300)) then
-  nppt=nkptnr
-else
-  nppt=nkpt
+if (use_sirius) then
+#ifdef SIRIUS
+  call sirius_create_kset(nkpt, vkl, wkpt, 1, kset_id)
+#else
+  stop "Not compiled with SIRIUS support."
+#endif
 end if
-! find the maximum number of G+k-vectors
-call findngkmax(nkpt,vkc,nspnfv,vqcss,ngvec,vgc,gkmax,ngkmax)
-! allocate the G+k-vector arrays
-if (allocated(ngk)) deallocate(ngk)
-allocate(ngk(nspnfv,nppt))
-if (allocated(igkig)) deallocate(igkig)
-allocate(igkig(ngkmax,nspnfv,nppt))
-if (allocated(vgkl)) deallocate(vgkl)
-allocate(vgkl(3,ngkmax,nspnfv,nppt))
-if (allocated(vgkc)) deallocate(vgkc)
-allocate(vgkc(3,ngkmax,nspnfv,nppt))
-if (allocated(gkc)) deallocate(gkc)
-allocate(gkc(ngkmax,nspnfv,nppt))
-if (allocated(tpgkc)) deallocate(tpgkc)
-allocate(tpgkc(2,ngkmax,nspnfv,nppt))
-if (allocated(sfacgk)) deallocate(sfacgk)
-allocate(sfacgk(ngkmax,natmtot,nspnfv,nppt))
-do ik=1,nppt
-  do jspn=1,nspnfv
-    vl(:)=vkl(:,ik)
-    vc(:)=vkc(:,ik)
-! spin-spiral case
-    if (spinsprl) then
-      if (jspn.eq.1) then
-        vl(:)=vl(:)+0.5d0*vqlss(:)
-        vc(:)=vc(:)+0.5d0*vqcss(:)
-      else
-        vl(:)=vl(:)-0.5d0*vqlss(:)
-        vc(:)=vc(:)-0.5d0*vqcss(:)
+
+if (.not.use_sirius) then
+  !---------------------!
+  !     G+k-vectors     !
+  !---------------------!
+  if ((xctype(1).lt.0).or.(task.eq.5).or.(task.eq.10).or.(task.eq.205).or. &
+   (task.eq.300)) then
+    nppt=nkptnr
+  else
+    nppt=nkpt
+  end if
+  ! find the maximum number of G+k-vectors
+  call findngkmax(nkpt,vkc,nspnfv,vqcss,ngvec,vgc,gkmax,ngkmax)
+  ! allocate the G+k-vector arrays
+  if (allocated(ngk)) deallocate(ngk)
+  allocate(ngk(nspnfv,nppt))
+  if (allocated(igkig)) deallocate(igkig)
+  allocate(igkig(ngkmax,nspnfv,nppt))
+  if (allocated(vgkl)) deallocate(vgkl)
+  allocate(vgkl(3,ngkmax,nspnfv,nppt))
+  if (allocated(vgkc)) deallocate(vgkc)
+  allocate(vgkc(3,ngkmax,nspnfv,nppt))
+  if (allocated(gkc)) deallocate(gkc)
+  allocate(gkc(ngkmax,nspnfv,nppt))
+  if (allocated(tpgkc)) deallocate(tpgkc)
+  allocate(tpgkc(2,ngkmax,nspnfv,nppt))
+  if (allocated(sfacgk)) deallocate(sfacgk)
+  allocate(sfacgk(ngkmax,natmtot,nspnfv,nppt))
+  do ik=1,nppt
+    do jspn=1,nspnfv
+      vl(:)=vkl(:,ik)
+      vc(:)=vkc(:,ik)
+  ! spin-spiral case
+      if (spinsprl) then
+        if (jspn.eq.1) then
+          vl(:)=vl(:)+0.5d0*vqlss(:)
+          vc(:)=vc(:)+0.5d0*vqcss(:)
+        else
+          vl(:)=vl(:)-0.5d0*vqlss(:)
+          vc(:)=vc(:)-0.5d0*vqcss(:)
+        end if
       end if
-    end if
-! generate the G+k-vectors
-    call gengkvec(ngvec,ivg,vgc,vl,vc,gkmax,ngkmax,ngk(jspn,ik), &
-     igkig(:,jspn,ik),vgkl(:,:,jspn,ik),vgkc(:,:,jspn,ik))
-! generate the spherical coordinates of the G+k-vectors
-    do igk=1,ngk(jspn,ik)
-      call sphcrd(vgkc(:,igk,jspn,ik),gkc(igk,jspn,ik),tpgkc(:,igk,jspn,ik))
+  ! generate the G+k-vectors
+      call gengkvec(ngvec,ivg,vgc,vl,vc,gkmax,ngkmax,ngk(jspn,ik), &
+       igkig(:,jspn,ik),vgkl(:,:,jspn,ik),vgkc(:,:,jspn,ik))
+  ! generate the spherical coordinates of the G+k-vectors
+      do igk=1,ngk(jspn,ik)
+        call sphcrd(vgkc(:,igk,jspn,ik),gkc(igk,jspn,ik),tpgkc(:,igk,jspn,ik))
+      end do
+  ! generate structure factors for G+k-vectors
+      call gensfacgp(ngk(jspn,ik),vgkc(:,:,jspn,ik),ngkmax,sfacgk(:,:,jspn,ik))
     end do
-! generate structure factors for G+k-vectors
-    call gensfacgp(ngk(jspn,ik),vgkc(:,:,jspn,ik),ngkmax,sfacgk(:,:,jspn,ik))
   end do
-end do
-! write to VARIABLES.OUT
-call writevars('nspnfv',iv=nspnfv)
-call writevars('ngk',nv=nspnfv*nkpt,iva=ngk)
-do ik=1,nkpt
-  do jspn=1,nspnfv
-    call writevars('igkig',l=jspn,m=ik,nv=ngk(jspn,ik),iva=igkig(:,jspn,ik))
+  ! write to VARIABLES.OUT
+  call writevars('nspnfv',iv=nspnfv)
+  call writevars('ngk',nv=nspnfv*nkpt,iva=ngk)
+  do ik=1,nkpt
+    do jspn=1,nspnfv
+      call writevars('igkig',l=jspn,m=ik,nv=ngk(jspn,ik),iva=igkig(:,jspn,ik))
+    end do
   end do
-end do
+else
+#ifdef SIRIUS
+  call sirius_get_max_num_gkvec(kset_id, ngkmax)
+
+#else
+  stop "Not compiled with SIRIUS support"
+#endif
+endif
 
 !---------------------------------!
 !     APWs and local-orbitals     !
@@ -283,34 +300,36 @@ if (dftu.ne.0) then
   allocate(fdufr(nrmtmax,2,apwordmax,0:lmaxdm,natmtot))
 end if
 
-!---------------------------------------!
-!     eigenvalue equation variables     !
-!---------------------------------------!
-! total number of empty states (M. Meinert)
-nempty=nint(nempty0*natmtot*nspinor)
-if (nempty.lt.1) nempty=1
-! number of first-variational states
-nstfv=int(chgval/2.d0)+nempty+1
-! overlap and Hamiltonian matrix sizes
-if (allocated(nmat)) deallocate(nmat)
-allocate(nmat(nspnfv,nkpt))
-nmatmax=0
-do ik=1,nkpt
-  do jspn=1,nspnfv
-    nmat(jspn,ik)=ngk(jspn,ik)+nlotot
-    if (nstfv.gt.nmat(jspn,ik)) then
-      write(*,*)
-      write(*,'("Error(init1): number of first-variational states larger than &
-       &matrix size")')
-      write(*,'("Increase rgkmax or decrease nempty")')
-      write(*,*)
-      stop
-    end if
-    nmatmax=max(nmatmax,nmat(jspn,ik))
+if (.not.use_sirius) then
+  !---------------------------------------!
+  !     eigenvalue equation variables     !
+  !---------------------------------------!
+  ! total number of empty states (M. Meinert)
+  nempty=nint(nempty0*natmtot*nspinor)
+  if (nempty.lt.1) nempty=1
+  ! number of first-variational states
+  nstfv=int(chgval/2.d0)+nempty+1
+  ! overlap and Hamiltonian matrix sizes
+  if (allocated(nmat)) deallocate(nmat)
+  allocate(nmat(nspnfv,nkpt))
+  nmatmax=0
+  do ik=1,nkpt
+    do jspn=1,nspnfv
+      nmat(jspn,ik)=ngk(jspn,ik)+nlotot
+      if (nstfv.gt.nmat(jspn,ik)) then
+        write(*,*)
+        write(*,'("Error(init1): number of first-variational states larger than &
+         &matrix size")')
+        write(*,'("Increase rgkmax or decrease nempty")')
+        write(*,*)
+        stop
+      end if
+      nmatmax=max(nmatmax,nmat(jspn,ik))
+    end do
   end do
-end do
-! number of second-variational states
-nstsv=nstfv*nspinor
+  ! number of second-variational states
+  nstsv=nstfv*nspinor
+end if
 ! allocate second-variational arrays
 if (allocated(evalsv)) deallocate(evalsv)
 allocate(evalsv(nstsv,nkpt))
